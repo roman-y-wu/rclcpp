@@ -181,8 +181,9 @@ class SubscriberWithTopicStatistics : public rclcpp::Node
 public:
   SubscriberWithTopicStatistics(
     const std::string & name, const std::string & topic,
-    std::chrono::milliseconds publish_period = defaultStatisticsPublishPeriod)
-  : Node(name)
+    std::chrono::milliseconds publish_period = defaultStatisticsPublishPeriod,
+    bool use_intra_process = false)
+  : Node(name, rclcpp::NodeOptions().use_intra_process_comms(use_intra_process))
   {
     // Manually enable topic statistics via options
     auto options = rclcpp::SubscriptionOptions();
@@ -265,7 +266,7 @@ TEST_F(TestSubscriptionTopicStatisticsFixture, test_invalid_publish_period)
 {
   ASSERT_THROW(
     SubscriberWithTopicStatistics<Empty>(
-      "test_period_node", "should_throw_invalid_arg", std::chrono::milliseconds(0)
+      "test_period_node", "should_throw_invalid_arg", std::chrono::milliseconds(0), false
     ),
     std::invalid_argument);
 }
@@ -278,7 +279,9 @@ TEST_F(TestSubscriptionTopicStatisticsFixture, test_manual_construction)
 {
   auto empty_subscriber = std::make_shared<SubscriberWithTopicStatistics<Empty>>(
     kTestSubNodeName,
-    kTestSubStatsEmptyTopic);
+    kTestSubStatsEmptyTopic,
+    defaultStatisticsPublishPeriod,
+    false);
 
   // Manually create publisher tied to the node
   auto topic_stats_publisher =
@@ -322,7 +325,9 @@ TEST_F(TestSubscriptionTopicStatisticsFixture, test_receive_stats_for_message_no
 
   auto empty_subscriber = std::make_shared<SubscriberWithTopicStatistics<Empty>>(
     kTestSubNodeName,
-    kTestSubStatsEmptyTopic);
+    kTestSubStatsEmptyTopic,
+    defaultStatisticsPublishPeriod,
+    false);
 
   rclcpp::executors::SingleThreadedExecutor ex;
   ex.add_node(empty_publisher);
@@ -367,7 +372,9 @@ TEST_F(TestSubscriptionTopicStatisticsFixture, test_receive_stats_include_window
   auto msg_subscriber_with_topic_statistics =
     std::make_shared<SubscriberWithTopicStatistics<test_msgs::msg::Strings>>(
     kTestSubNodeName,
-    kTestSubStatsTopic);
+    kTestSubStatsTopic,
+    defaultStatisticsPublishPeriod,
+    false);
 
   // Create a message publisher
   auto msg_publisher =
@@ -420,4 +427,46 @@ TEST_F(TestSubscriptionTopicStatisticsFixture, test_receive_stats_include_window
         break;
     }
   }
+}
+
+void run_intra_process_test(bool use_intra_process)
+{
+  auto empty_publisher = std::make_shared<PublisherNode<Empty>>(
+    kTestPubNodeName,
+    kTestSubStatsEmptyTopic);
+  auto statistics_listener = std::make_shared<rclcpp::topic_statistics::MetricsMessageSubscriber>(
+    use_intra_process ? "stats_listener_intra" : "stats_listener_inter",
+    "/statistics",
+    kNumExpectedWindows);
+  auto empty_subscriber = std::make_shared<SubscriberWithTopicStatistics<Empty>>(
+    kTestSubNodeName,
+    kTestSubStatsEmptyTopic,
+    defaultStatisticsPublishPeriod,
+    use_intra_process);
+
+  rclcpp::executors::SingleThreadedExecutor ex;
+  ex.add_node(empty_publisher);
+  ex.add_node(statistics_listener);
+  ex.add_node(empty_subscriber);
+
+  ex.spin_until_future_complete(statistics_listener->GetFuture(), kTestTimeout);
+
+  const auto received_messages = statistics_listener->GetReceivedMessages();
+  EXPECT_EQ(kNumExpectedWindows, received_messages.size());
+
+  for (const auto & msg : received_messages) {
+    if (msg.metrics_source == kMessagePeriodSourceLabel) {
+      check_if_statistic_message_is_populated(msg);
+    }
+  }
+}
+
+TEST_F(TestSubscriptionTopicStatisticsFixture, test_stats_period_inter_process)
+{
+  run_intra_process_test(false);
+}
+
+TEST_F(TestSubscriptionTopicStatisticsFixture, test_stats_period_intra_process)
+{
+  run_intra_process_test(true);
 }

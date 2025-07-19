@@ -32,6 +32,7 @@
 #include "rclcpp/qos.hpp"
 #include "rclcpp/type_support_decl.hpp"
 #include "rclcpp/topic_statistics/subscription_topic_statistics.hpp"
+#include "rclcpp/logging.hpp"
 #include "tracetools/tracetools.h"
 
 namespace rclcpp
@@ -181,9 +182,10 @@ protected:
 
     std::chrono::time_point<std::chrono::system_clock> now;
     if (subscription_topic_statistics_) {
+      RCLCPP_WARN_ONCE(
+        rclcpp::get_logger("rclcpp"),
+        "Intra-process communication does not support accurate message age statistics");
       now = std::chrono::system_clock::now();
-      auto nanos = std::chrono::time_point_cast<std::chrono::nanoseconds>(now);
-      msg_info.source_timestamp = nanos.time_since_epoch().count();
     }
 
     auto shared_ptr = std::static_pointer_cast<std::pair<ConstMessageSharedPtr, MessageUniquePtr>>(
