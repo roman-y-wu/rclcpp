@@ -31,6 +31,7 @@
 #include "rclcpp/experimental/subscription_intra_process_buffer.hpp"
 #include "rclcpp/qos.hpp"
 #include "rclcpp/type_support_decl.hpp"
+#include "rclcpp/topic_statistics/subscription_topic_statistics.hpp"
 #include "tracetools/tracetools.h"
 
 namespace rclcpp
@@ -70,6 +71,8 @@ public:
   using ConstMessageSharedPtr = typename SubscriptionIntraProcessBufferT::ConstDataSharedPtr;
   using MessageUniquePtr = typename SubscriptionIntraProcessBufferT::SubscribedTypeUniquePtr;
   using BufferUniquePtr = typename SubscriptionIntraProcessBufferT::BufferUniquePtr;
+  using SubscriptionTopicStatisticsSharedPtr =
+    std::shared_ptr<rclcpp::topic_statistics::SubscriptionTopicStatistics>;
 
   SubscriptionIntraProcess(
     AnySubscriptionCallback<MessageT, Alloc> callback,
@@ -77,7 +80,8 @@ public:
     rclcpp::Context::SharedPtr context,
     const std::string & topic_name,
     const rclcpp::QoS & qos_profile,
-    rclcpp::IntraProcessBufferType buffer_type)
+    rclcpp::IntraProcessBufferType buffer_type,
+    SubscriptionTopicStatisticsSharedPtr subscription_topic_statistics = nullptr)
   : SubscriptionIntraProcessBuffer<SubscribedType, SubscribedTypeAlloc,
       SubscribedTypeDeleter, ROSMessageType>(
       std::make_shared<SubscribedTypeAlloc>(*allocator),
@@ -85,7 +89,8 @@ public:
       topic_name,
       qos_profile,
       buffer_type),
-    any_callback_(callback)
+    any_callback_(callback),
+    subscription_topic_statistics_(std::move(subscription_topic_statistics))
   {
     TRACETOOLS_TRACEPOINT(
       rclcpp_subscription_callback_added,
@@ -174,6 +179,13 @@ protected:
     msg_info.publisher_gid = {0, {0}};
     msg_info.from_intra_process = true;
 
+    std::chrono::time_point<std::chrono::system_clock> now;
+    if (subscription_topic_statistics_) {
+      now = std::chrono::system_clock::now();
+      auto nanos = std::chrono::time_point_cast<std::chrono::nanoseconds>(now);
+      msg_info.source_timestamp = nanos.time_since_epoch().count();
+    }
+
     auto shared_ptr = std::static_pointer_cast<std::pair<ConstMessageSharedPtr, MessageUniquePtr>>(
       data);
 
@@ -185,9 +197,16 @@ protected:
       any_callback_.dispatch_intra_process(std::move(unique_msg), msg_info);
     }
     shared_ptr.reset();
+
+    if (subscription_topic_statistics_) {
+      const auto nanos = std::chrono::time_point_cast<std::chrono::nanoseconds>(now);
+      const auto time = rclcpp::Time(nanos.time_since_epoch().count());
+      subscription_topic_statistics_->handle_message(msg_info, time);
+    }
   }
 
   AnySubscriptionCallback<MessageT, Alloc> any_callback_;
+  SubscriptionTopicStatisticsSharedPtr subscription_topic_statistics_;
 };
 
 }  // namespace experimental

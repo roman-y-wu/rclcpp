@@ -25,6 +25,7 @@
 #include "rclcpp/context.hpp"
 #include "rclcpp/macros.hpp"
 #include "rclcpp/qos.hpp"
+#include "rclcpp/topic_statistics/subscription_topic_statistics.hpp"
 #include "rmw/types.h"
 #include "rmw/qos_profiles.h"
 
@@ -376,7 +377,10 @@ class SubscriptionIntraProcess : public SubscriptionIntraProcessBuffer<
 public:
   RCLCPP_SMART_PTR_DEFINITIONS(SubscriptionIntraProcess)
 
-  explicit SubscriptionIntraProcess(const std::string & topic, const rclcpp::QoS & qos)
+  explicit SubscriptionIntraProcess(
+    const std::string & topic,
+    const rclcpp::QoS & qos,
+    std::shared_ptr<rclcpp::topic_statistics::SubscriptionTopicStatistics> = nullptr)
   : SubscriptionIntraProcessBuffer<MessageT, Alloc, Deleter>(topic, qos)
   {
   }
