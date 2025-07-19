@@ -206,6 +206,7 @@ protected:
   }
 
   AnySubscriptionCallback<MessageT, Alloc> any_callback_;
+  /// Optional statistics calculator for intra-process deliveries.
   SubscriptionTopicStatisticsSharedPtr subscription_topic_statistics_;
 };
 
